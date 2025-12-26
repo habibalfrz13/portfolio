@@ -1,0 +1,91 @@
+name: Deploy Portfolio (Split Structure)
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  web-deploy:
+    name: 🚀 Deploy to Shared Hosting
+    runs-on: ubuntu-latest
+
+    steps:
+    # ----------------------------------------------------------------
+    # STEP 1: PERSIAPAN & BUILD
+    # ----------------------------------------------------------------
+    - name: 🚚 Get latest code
+      uses: actions/checkout@v4
+
+    - name: 🐘 Setup PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: '8.2' # Sesuaikan dengan versi PHP server
+    
+    - name: 📦 Install Composer Dependencies
+      run: composer install -q --no-ansi --no-interaction --no-scripts --no-progress --prefer-dist
+
+    - name: 🟢 Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+
+    - name: 🔨 Build Assets (Vite/Mix)
+      run: |
+        npm ci
+        npm run build
+        rm -rf node_modules
+
+    # ----------------------------------------------------------------
+    # STEP 2: UPLOAD CORE (Folder Repositories)
+    # ----------------------------------------------------------------
+    - name: 📂 Sync CORE Files (Tanpa Public)
+      uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+      with:
+        server: ${{ secrets.FTP_SERVER }}
+        username: ${{ secrets.FTP_USERNAME }}
+        password: ${{ secrets.FTP_PASSWORD }}
+        
+        # Upload semua file dari root project git
+        local-dir: ./
+        
+        # Tujuan: Folder "portfolio_core" di luar public_html
+        server-dir: /repositories/portfolio_core/
+        
+        dangerous-clean-slate: true 
+        
+        # PENTING: Jangan upload folder public & file konfigurasi server
+        exclude: |
+          **/.git*
+          **/.git*/**
+          **/.github*/**
+          **/node_modules/**
+          public/**
+          .env
+          storage/**
+          phpunit.xml
+          README.md
+
+    # ----------------------------------------------------------------
+    # STEP 3: UPLOAD PUBLIC (Folder Public HTML)
+    # ----------------------------------------------------------------
+    - name: 📂 Sync PUBLIC Files (Assets Only)
+      uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+      with:
+        server: ${{ secrets.FTP_SERVER }}
+        username: ${{ secrets.FTP_USERNAME }}
+        password: ${{ secrets.FTP_PASSWORD }}
+        
+        # Upload HANYA isi folder public lokal (hasil build)
+        local-dir: ./public/
+        
+        # Tujuan: Folder akses web
+        server-dir: /public_html/portfolio/
+        
+        dangerous-clean-slate: true 
+        
+        # PENTING: Exclude index.php agar config path manual tidak hilang
+        exclude: |
+          storage
+          index.php
+          .htaccess
