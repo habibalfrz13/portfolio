@@ -50,7 +50,7 @@ jobs:
         local-dir: ./
         
         # Tujuan: Folder "portfolio_core" di luar public_html
-        server-dir: /repositories/portfolio_core/
+        server-dir: /repositories/portofolio_core/
         
         dangerous-clean-slate: true 
         
