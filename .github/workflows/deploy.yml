@@ -1,4 +1,4 @@
-name: Deploy Portfolio (Safe Mode)
+name: Deploy Laravel Inertia (Split Move Strategy)
 
 on:
   push:
@@ -7,10 +7,13 @@ on:
 
 jobs:
   web-deploy:
-    name: 🚀 Deploy Safe Mode
+    name: Build & Deploy
     runs-on: ubuntu-latest
 
     steps:
+    # ------------------------------------------------------------------
+    # BUILD STEP
+    # ------------------------------------------------------------------
     - name: 🚚 Get latest code
       uses: actions/checkout@v4
 
@@ -18,63 +21,79 @@ jobs:
       uses: shivammathur/setup-php@v2
       with:
         php-version: '8.2'
-    
+        extensions: mbstring, bcmath, intl
+
     - name: 📦 Install Composer Dependencies
-      run: composer install -q --no-ansi --no-interaction --no-scripts --no-progress --prefer-dist
+      run: composer install --no-dev --optimize-autoloader --prefer-dist
 
     - name: 🟢 Setup Node.js
-      uses: actions/setup-node@v3
+      uses: actions/setup-node@v4
       with:
-        node-version: '18'
+        node-version: '20'
 
-    - name: 🔨 Build Assets
+    - name: 🔨 Build Frontend Assets
       run: |
         npm ci
         npm run build
-        rm -rf node_modules
+        
+    - name: 🔑 Create .env file
+      run: |
+        echo "${{ secrets.ENV_FILE }}" > .env
 
-    # STEP 2: UPLOAD CORE (SAFE MODE - NO DELETE)
-    - name: 📂 Sync CORE Files
+    # ------------------------------------------------------------------
+    # FASE 1: UPLOAD PUBLIC ASSETS (Hanya CSS/JS/Images)
+    # Tujuan: public_html/portfolio
+    # ------------------------------------------------------------------
+    - name: 🚀 Upload Assets to Public (No Manifest)
       uses: SamKirkland/FTP-Deploy-Action@v4.3.5
       with:
         server: ${{ secrets.FTP_SERVER }}
         username: ${{ secrets.FTP_USERNAME }}
         password: ${{ secrets.FTP_PASSWORD }}
-        port: 21
-        protocol: ftp
-        local-dir: ./
-        server-dir: /repositories/portofolio_core/
-        
-        # MATIKAN FITUR HAPUS OTOMATIS
-        dangerous-clean-slate: false 
-        
+        local-dir: public/
+        server-dir: public_html/portfolio/
+        exclude: |
+          index.php             # JANGAN TIMPA index.php custom
+          build/manifest.json   # <--- FITUR UTAMA: Manifest tidak di-upload ke sini (Dipindahkan)
+          .htaccess
+          hot
+          storage
+          robots.txt
+
+    # ------------------------------------------------------------------
+    # FASE 2: UPLOAD CORE LARAVEL
+    # Tujuan: repositories/portofolio_core
+    # ------------------------------------------------------------------
+    - name: 🚀 Upload Core Files
+      uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+      with:
+        server: ${{ secrets.FTP_SERVER }}
+        username: ${{ secrets.FTP_USERNAME }}
+        password: ${{ secrets.FTP_PASSWORD }}
+        server-dir: repositories/portofolio_core/
         exclude: |
           **/.git*
           **/.git*/**
-          **/.github*/**
-          **/node_modules/**
-          public/**
-          .env
-          storage/**
-          phpunit.xml
-          README.md
+          node_modules/**
+          public/** # Exclude public agar bersih
+          tests/**
+          storage/logs/**
+          storage/framework/**
+          storage/app/**
+          .editorconfig
+          .styleci.yml
 
-    # STEP 3: UPLOAD PUBLIC (SAFE MODE - NO DELETE)
-    - name: 📂 Sync PUBLIC Files
+    # ------------------------------------------------------------------
+    # FASE 3: UPLOAD MANIFEST KE CORE (Hanya Manifest)
+    # Tujuan: repositories/portofolio_core/public/build
+    # ------------------------------------------------------------------
+    - name: 🚀 Move Manifest to Core
       uses: SamKirkland/FTP-Deploy-Action@v4.3.5
       with:
         server: ${{ secrets.FTP_SERVER }}
         username: ${{ secrets.FTP_USERNAME }}
         password: ${{ secrets.FTP_PASSWORD }}
-        port: 21
-        protocol: ftp
-        local-dir: ./public/
-        server-dir: /public_html/portfolio/
-        
-        # MATIKAN FITUR HAPUS OTOMATIS
-        dangerous-clean-slate: false
-        
+        local-dir: public/build/
+        server-dir: repositories/portofolio_core/public/build/
         exclude: |
-          storage
-          index.php
-          .htaccess
+          assets/** # <--- FITUR UTAMA: CSS/JS tidak ikut ke Core (Hemat Space)
