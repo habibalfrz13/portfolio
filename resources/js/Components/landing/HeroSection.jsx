@@ -37,7 +37,7 @@ export default function HeroSection({ isDarkMode, scrollToSection, links }) {
                     <h1 className="text-5xl md:text-7xl font-extrabold tracking-tight leading-tight">
                         Hi, I'm <br/>
                         <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500">
-                            Habib Al Farizi
+                            Habib Al Farizizzzz
                         </span>
                     </h1>
                     

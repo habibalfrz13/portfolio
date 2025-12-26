@@ -38,7 +38,7 @@ export default function Welcome({ projects, experiences, educations, certificate
         "@context": "https://schema.org",
         "@type": "Person",
         "name": "Habib Al Farizi",
-        "jobTitle": "Fullstack Developerrr",
+        "jobTitle": "Fullstack Developer",
         "url": "https://habibalfrz.dev", // Ganti dengan domain asli nanti
         "sameAs": [
             links.linkedin,
