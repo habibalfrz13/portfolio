@@ -38,7 +38,9 @@ jobs:
         
     - name: 🔑 Create .env file
       run: |
-        echo "${{ secrets.ENV_FILE }}" > .env
+        cat <<'EOF' > .env
+        ${{ secrets.ENV_FILE }}
+        EOF
 
     # ------------------------------------------------------------------
     # FASE 1: UPLOAD PUBLIC ASSETS (Hanya CSS/JS/Images)
