@@ -96,4 +96,4 @@ jobs:
         local-dir: public/build/
         server-dir: repositories/portofolio_core/public/build/
         exclude: |
-          assets/** # <--- FITUR UTAMA: CSS/JS tidak ikut ke Core (Hemat Space)
+          assets/** # <--- FITUR UTAMA: CSS/JS tidak ikut ke Core (Hemat Space) 
