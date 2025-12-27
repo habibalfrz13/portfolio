@@ -1,4 +1,4 @@
-name: Deploy via LFTP (Force Upload)
+name: Deploy via LFTP (Final Fix)
 
 on:
   push:
@@ -11,11 +11,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    # 1. AMBIL KODE
     - name: 🚚 Get latest code
       uses: actions/checkout@v4
 
-    # 2. SETUP LINGKUNGAN
     - name: 🐘 Setup PHP
       uses: shivammathur/setup-php@v2
       with:
@@ -30,20 +28,17 @@ jobs:
       with:
         node-version: '20'
 
-    # 3. BUILD ASSETS
     - name: 🔨 Build Frontend
       run: |
         npm ci
         npm run build
 
-    # 4. BUAT .ENV
     - name: 🔑 Create .env file
       run: |
         cat <<'EOF' > .env
         ${{ secrets.ENV_FILE }}
         EOF
 
-    # 5. PACKAGING (MEMBUAT ZIP)
     - name: 🗜️ Prepare ZIP Package
       run: |
         mkdir -p deploy_package/core
@@ -68,18 +63,18 @@ jobs:
         zip -r ../artifact.zip .
         cd ..
 
-    # 6. PERSIAPAN FOLDER UPLOAD
     - name: 📂 Prepare Final Upload Folder
       run: |
         mkdir final_upload
         mv artifact.zip final_upload/
         
-        # BUAT SCRIPT DEPLOY.PHP OTOMATIS
+        # SCRIPT PHP YANG SUDAH DIPERBAIKI (VARIABLE NAME FIXED)
         cat <<'EOF' > final_upload/deploy.php
         <?php
         ini_set('display_errors', 1);
         error_reporting(E_ALL);
 
+        // Security Token
         if (($_GET['token'] ?? '') !== 'ALVADEV_SECRET_KEY_2025') {
             die('ACCESS DENIED');
         }
@@ -125,13 +120,16 @@ jobs:
             die("❌ Gagal Unzip.");
         }
 
+        // --- FUNGSI COPY YANG SUDAH DIPERBAIKI ---
         function smartCopy($src, $dst) {
             $dir = opendir($src);
             @mkdir($dst);
             while (false !== ($file = readdir($dir))) {
                 if (($file != '.') && ($file != '..')) {
-                    $srcFile = $source . '/' . $file;
-                    $dstFile = $dest . '/' . $file;
+                    // SEBELUMNYA SALAH VARIABEL ($source/$dest), SEKARANG SUDAH BENAR ($src/$dst)
+                    $srcFile = $src . '/' . $file;
+                    $dstFile = $dst . '/' . $file;
+                    
                     if (is_dir($srcFile)) {
                         smartCopy($srcFile, $dstFile);
                     } else {
@@ -153,22 +151,12 @@ jobs:
         }
         EOF
 
-        # DEBUG: BUKTIKAN FILE ADA
-        echo "Isi folder final_upload:"
-        ls -la final_upload/
-
-    # 7. UPLOAD MENGGUNAKAN LFTP (SOLUSI INTI)
     - name: 🚀 Force Upload via LFTP
       run: |
-        # Install LFTP
         sudo apt-get update
         sudo apt-get install -y lftp
-
-        # Upload Brutal (Mirroring)
-        # Perintah ini memaksa isi folder 'final_upload' masuk ke 'public_html/portfolio'
         lftp -e "set ssl:verify-certificate no; open ${{ secrets.FTP_SERVER }}; user ${{ secrets.FTP_USERNAME }} ${{ secrets.FTP_PASSWORD }}; mirror -R -v final_upload/ public_html/portfolio/; bye"
 
-    # 8. TRIGGER DEPLOY
     - name: 💥 Trigger Deployment
       run: |
         echo "Menunggu sebentar agar file stabil..."
