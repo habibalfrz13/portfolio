@@ -1,4 +1,4 @@
-name: Deploy via ZIP (Auto-Gen Script)
+name: Deploy via LFTP (Force Upload)
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
 
 jobs:
   web-deploy:
-    name: Package & Ship
+    name: Package & Force Upload
     runs-on: ubuntu-latest
 
     steps:
@@ -46,76 +46,81 @@ jobs:
     # 5. PACKAGING (MEMBUAT ZIP)
     - name: 🗜️ Prepare ZIP Package
       run: |
-        # Buat struktur folder sementara
         mkdir -p deploy_package/core
         mkdir -p deploy_package/public
         
-        # Copy Core (Kecuali yang tidak perlu)
+        # Copy Core
         rsync -av --exclude='deploy_package' --exclude='.git' --exclude='node_modules' --exclude='public' . deploy_package/core/
         
         # Copy Public Assets
         cp -r public/* deploy_package/public/
         
-        # Pindahkan Manifest ke Core
+        # Pindahkan Manifest
         mkdir -p deploy_package/core/public/build
         cp public/build/manifest.json deploy_package/core/public/build/
         rm deploy_package/public/build/manifest.json
         
-        # Hapus index.php dari paket public (agar file custom server aman)
+        # Hapus index.php
         rm deploy_package/public/index.php
 
-        # ZIP SEMUANYA
+        # ZIP
         cd deploy_package
         zip -r ../artifact.zip .
         cd ..
 
-    # 6. PERSIAPAN UPLOAD (MEMBUAT FOLDER FINAL)
-    # Kita kumpulkan file yang mau diupload ke satu folder 'final_upload'
+    # 6. PERSIAPAN FOLDER UPLOAD
     - name: 📂 Prepare Final Upload Folder
       run: |
         mkdir final_upload
         mv artifact.zip final_upload/
         
-        # MEMBUAT FILE DEPLOY.PHP SECARA OTOMATIS DI SINI
-        # Jadi Anda tidak perlu push file ini dari laptop
+        # BUAT SCRIPT DEPLOY.PHP OTOMATIS
         cat <<'EOF' > final_upload/deploy.php
         <?php
         ini_set('display_errors', 1);
         error_reporting(E_ALL);
 
-        // TOKEN RAHASIA (Sama dengan yang di curl bawah)
         if (($_GET['token'] ?? '') !== 'ALVADEV_SECRET_KEY_2025') {
             die('ACCESS DENIED');
         }
 
         $zipFile = __DIR__ . '/artifact.zip';
         $extractPath = __DIR__ . '/temp_unzip';
-
-        // DEFINISI PATH SERVER
-        // __DIR__ = public_html/portfolio
+        
+        // PASTIIN PATH INI BENAR
         $targetCore = realpath(__DIR__ . '/../../repositories/portofolio_core');
         $targetPublic = __DIR__;
 
-        if (!file_exists($zipFile)) die("❌ ZIP tidak ditemukan.");
-        if (!$targetCore) die("❌ Folder Core tidak ditemukan.");
+        echo "<h1>🚀 Memulai Force Update...</h1>";
+        
+        if (!file_exists($zipFile)) die("❌ ZIP Kosong.");
+        if (!$targetCore) die("❌ Target Core Tidak Ditemukan.");
 
         $zip = new ZipArchive;
         if ($zip->open($zipFile) === TRUE) {
+            
+            // Bersihkan temp lama
+            if (is_dir($extractPath)) recursiveDelete($extractPath);
+            mkdir($extractPath, 0755, true);
+            
             // Ekstrak
-            if (!is_dir($extractPath)) mkdir($extractPath, 0755, true);
             $zip->extractTo($extractPath);
             $zip->close();
 
-            // Pindahkan
+            // UPDATE CORE
+            echo "📦 Updating Core...<br>";
             smartCopy($extractPath . '/core', $targetCore);
+
+            // UPDATE PUBLIC
+            echo "🌍 Updating Public Assets...<br>";
             smartCopy($extractPath . '/public', $targetPublic);
 
-            // Bersih-bersih
+            // CLEAN UP
             recursiveDelete($extractPath);
             unlink($zipFile);
-            unlink(__FILE__); // Hapus diri sendiri
+            unlink(__FILE__); // Self destruct
             
-            echo "SUCCESS";
+            echo "<h2>✅ UPDATE BERHASIL!</h2>";
         } else {
             die("❌ Gagal Unzip.");
         }
@@ -125,8 +130,14 @@ jobs:
             @mkdir($dst);
             while (false !== ($file = readdir($dir))) {
                 if (($file != '.') && ($file != '..')) {
-                    if (is_dir($src . '/' . $file)) smartCopy($src . '/' . $file, $dst . '/' . $file);
-                    else copy($src . '/' . $file, $dst . '/' . $file);
+                    $srcFile = $source . '/' . $file;
+                    $dstFile = $dest . '/' . $file;
+                    if (is_dir($srcFile)) {
+                        smartCopy($srcFile, $dstFile);
+                    } else {
+                        copy($srcFile, $dstFile);
+                        touch($dstFile, filemtime($srcFile)); // Update timestamp
+                    }
                 }
             }
             closedir($dir);
@@ -142,19 +153,24 @@ jobs:
         }
         EOF
 
-    # 7. UPLOAD FOLDER 'FINAL_UPLOAD' KE SERVER
-    # Tidak pakai exclude aneh-aneh, pokoknya isi folder ini kirim semua.
-    - name: 🚀 Upload Final Artifacts
-      uses: SamKirkland/FTP-Deploy-Action@v4.3.5
-      with:
-        server: ${{ secrets.FTP_SERVER }}
-        username: ${{ secrets.FTP_USERNAME }}
-        password: ${{ secrets.FTP_PASSWORD }}
-        local-dir: final_upload/        # <--- Upload folder yang sudah kita siapkan
-        server-dir: public_html/portfolio/
+        # DEBUG: BUKTIKAN FILE ADA
+        echo "Isi folder final_upload:"
+        ls -la final_upload/
 
-    # 8. EKSEKUSI UNZIP
+    # 7. UPLOAD MENGGUNAKAN LFTP (SOLUSI INTI)
+    - name: 🚀 Force Upload via LFTP
+      run: |
+        # Install LFTP
+        sudo apt-get update
+        sudo apt-get install -y lftp
+
+        # Upload Brutal (Mirroring)
+        # Perintah ini memaksa isi folder 'final_upload' masuk ke 'public_html/portfolio'
+        lftp -e "set ssl:verify-certificate no; open ${{ secrets.FTP_SERVER }}; user ${{ secrets.FTP_USERNAME }} ${{ secrets.FTP_PASSWORD }}; mirror -R -v final_upload/ public_html/portfolio/; bye"
+
+    # 8. TRIGGER DEPLOY
     - name: 💥 Trigger Deployment
       run: |
-        echo "Mengakses Deploy Script..."
+        echo "Menunggu sebentar agar file stabil..."
+        sleep 5
         curl -s "https://portfolio.alvadev.cloud/deploy.php?token=ALVADEV_SECRET_KEY_2025"
