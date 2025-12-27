@@ -1,4 +1,4 @@
-name: Deploy via ZIP (Split Structure)
+name: Deploy via ZIP (Auto-Gen Script)
 
 on:
   push:
@@ -11,9 +11,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    # 1. AMBIL KODE
     - name: 🚚 Get latest code
       uses: actions/checkout@v4
 
+    # 2. SETUP LINGKUNGAN
     - name: 🐘 Setup PHP
       uses: shivammathur/setup-php@v2
       with:
@@ -28,65 +30,131 @@ jobs:
       with:
         node-version: '20'
 
+    # 3. BUILD ASSETS
     - name: 🔨 Build Frontend
       run: |
         npm ci
         npm run build
 
+    # 4. BUAT .ENV
     - name: 🔑 Create .env file
       run: |
         cat <<'EOF' > .env
         ${{ secrets.ENV_FILE }}
         EOF
 
-    # --- BAGIAN PENTING: PACKAGING ---
-    - name: 🗜️ Prepare & Zip
+    # 5. PACKAGING (MEMBUAT ZIP)
+    - name: 🗜️ Prepare ZIP Package
       run: |
-        # 1. Buat folder penampung
+        # Buat struktur folder sementara
         mkdir -p deploy_package/core
         mkdir -p deploy_package/public
         
-        # 2. Masukkan file CORE (Exclude public & node_modules)
+        # Copy Core (Kecuali yang tidak perlu)
         rsync -av --exclude='deploy_package' --exclude='.git' --exclude='node_modules' --exclude='public' . deploy_package/core/
         
-        # 3. Masukkan file PUBLIC (CSS/JS)
+        # Copy Public Assets
         cp -r public/* deploy_package/public/
         
-        # 4. MANIPULASI MANIFEST (PINDAHKAN DARI PUBLIC KE CORE)
-        # Buat folder tujuan di core
+        # Pindahkan Manifest ke Core
         mkdir -p deploy_package/core/public/build
-        # Copy manifest ke core
         cp public/build/manifest.json deploy_package/core/public/build/
-        # Hapus manifest dari paket public (agar tidak ada di public_html)
         rm deploy_package/public/build/manifest.json
         
-        # 5. AMANKAN INDEX.PHP
-        # Hapus index.php dari paket public (agar index custom server tidak tertimpa)
+        # Hapus index.php dari paket public (agar file custom server aman)
         rm deploy_package/public/index.php
 
-        # 6. ZIP
+        # ZIP SEMUANYA
         cd deploy_package
         zip -r ../artifact.zip .
         cd ..
 
-    # --- UPLOAD ZIP & DEPLOY SCRIPT ---
-    - name: 🚀 Upload ZIP
+    # 6. PERSIAPAN UPLOAD (MEMBUAT FOLDER FINAL)
+    # Kita kumpulkan file yang mau diupload ke satu folder 'final_upload'
+    - name: 📂 Prepare Final Upload Folder
+      run: |
+        mkdir final_upload
+        mv artifact.zip final_upload/
+        
+        # MEMBUAT FILE DEPLOY.PHP SECARA OTOMATIS DI SINI
+        # Jadi Anda tidak perlu push file ini dari laptop
+        cat <<'EOF' > final_upload/deploy.php
+        <?php
+        ini_set('display_errors', 1);
+        error_reporting(E_ALL);
+
+        // TOKEN RAHASIA (Sama dengan yang di curl bawah)
+        if (($_GET['token'] ?? '') !== 'ALVADEV_SECRET_KEY_2025') {
+            die('ACCESS DENIED');
+        }
+
+        $zipFile = __DIR__ . '/artifact.zip';
+        $extractPath = __DIR__ . '/temp_unzip';
+
+        // DEFINISI PATH SERVER
+        // __DIR__ = public_html/portfolio
+        $targetCore = realpath(__DIR__ . '/../../repositories/portofolio_core');
+        $targetPublic = __DIR__;
+
+        if (!file_exists($zipFile)) die("❌ ZIP tidak ditemukan.");
+        if (!$targetCore) die("❌ Folder Core tidak ditemukan.");
+
+        $zip = new ZipArchive;
+        if ($zip->open($zipFile) === TRUE) {
+            // Ekstrak
+            if (!is_dir($extractPath)) mkdir($extractPath, 0755, true);
+            $zip->extractTo($extractPath);
+            $zip->close();
+
+            // Pindahkan
+            smartCopy($extractPath . '/core', $targetCore);
+            smartCopy($extractPath . '/public', $targetPublic);
+
+            // Bersih-bersih
+            recursiveDelete($extractPath);
+            unlink($zipFile);
+            unlink(__FILE__); // Hapus diri sendiri
+            
+            echo "SUCCESS";
+        } else {
+            die("❌ Gagal Unzip.");
+        }
+
+        function smartCopy($src, $dst) {
+            $dir = opendir($src);
+            @mkdir($dst);
+            while (false !== ($file = readdir($dir))) {
+                if (($file != '.') && ($file != '..')) {
+                    if (is_dir($src . '/' . $file)) smartCopy($src . '/' . $file, $dst . '/' . $file);
+                    else copy($src . '/' . $file, $dst . '/' . $file);
+                }
+            }
+            closedir($dir);
+        }
+
+        function recursiveDelete($dir) {
+            if (!is_dir($dir)) return;
+            $files = array_diff(scandir($dir), array('.', '..'));
+            foreach ($files as $file) {
+                (is_dir("$dir/$file")) ? recursiveDelete("$dir/$file") : unlink("$dir/$file");
+            }
+            return rmdir($dir);
+        }
+        EOF
+
+    # 7. UPLOAD FOLDER 'FINAL_UPLOAD' KE SERVER
+    # Tidak pakai exclude aneh-aneh, pokoknya isi folder ini kirim semua.
+    - name: 🚀 Upload Final Artifacts
       uses: SamKirkland/FTP-Deploy-Action@v4.3.5
       with:
         server: ${{ secrets.FTP_SERVER }}
         username: ${{ secrets.FTP_USERNAME }}
         password: ${{ secrets.FTP_PASSWORD }}
-        local-dir: ./
+        local-dir: final_upload/        # <--- Upload folder yang sudah kita siapkan
         server-dir: public_html/portfolio/
-        # Kita upload ZIP dan Script PHP-nya saja
-        include: |
-          artifact.zip
-          public/deploy.php
-        exclude: |
-          **
 
-    # --- TRIGGER EKSEKUSI ---
-    - name: 💥 Trigger Extraction
+    # 8. EKSEKUSI UNZIP
+    - name: 💥 Trigger Deployment
       run: |
-        # GANTI TOKEN SESUAI YANG ADA DI FILE deploy.php
+        echo "Mengakses Deploy Script..."
         curl -s "https://portfolio.alvadev.cloud/deploy.php?token=ALVADEV_SECRET_KEY_2025"
