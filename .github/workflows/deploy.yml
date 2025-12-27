@@ -1,4 +1,4 @@
-name: Deploy Laravel Inertia (Split Move Strategy)
+name: Deploy via ZIP (Split Structure)
 
 on:
   push:
@@ -7,13 +7,10 @@ on:
 
 jobs:
   web-deploy:
-    name: Build & Deploy
+    name: Package & Ship
     runs-on: ubuntu-latest
 
     steps:
-    # ------------------------------------------------------------------
-    # BUILD STEP
-    # ------------------------------------------------------------------
     - name: 🚚 Get latest code
       uses: actions/checkout@v4
 
@@ -23,7 +20,7 @@ jobs:
         php-version: '8.2'
         extensions: mbstring, bcmath, intl
 
-    - name: 📦 Install Composer Dependencies
+    - name: 📦 Install Composer
       run: composer install --no-dev --optimize-autoloader --prefer-dist
 
     - name: 🟢 Setup Node.js
@@ -31,71 +28,65 @@ jobs:
       with:
         node-version: '20'
 
-    - name: 🔨 Build Frontend Assets
+    - name: 🔨 Build Frontend
       run: |
         npm ci
         npm run build
-        
+
     - name: 🔑 Create .env file
       run: |
         cat <<'EOF' > .env
         ${{ secrets.ENV_FILE }}
         EOF
 
-    # ------------------------------------------------------------------
-    # FASE 1: UPLOAD PUBLIC ASSETS (Hanya CSS/JS/Images)
-    # Tujuan: public_html/portfolio
-    # ------------------------------------------------------------------
-    - name: 🚀 Upload Assets to Public (No Manifest)
+    # --- BAGIAN PENTING: PACKAGING ---
+    - name: 🗜️ Prepare & Zip
+      run: |
+        # 1. Buat folder penampung
+        mkdir -p deploy_package/core
+        mkdir -p deploy_package/public
+        
+        # 2. Masukkan file CORE (Exclude public & node_modules)
+        rsync -av --exclude='deploy_package' --exclude='.git' --exclude='node_modules' --exclude='public' . deploy_package/core/
+        
+        # 3. Masukkan file PUBLIC (CSS/JS)
+        cp -r public/* deploy_package/public/
+        
+        # 4. MANIPULASI MANIFEST (PINDAHKAN DARI PUBLIC KE CORE)
+        # Buat folder tujuan di core
+        mkdir -p deploy_package/core/public/build
+        # Copy manifest ke core
+        cp public/build/manifest.json deploy_package/core/public/build/
+        # Hapus manifest dari paket public (agar tidak ada di public_html)
+        rm deploy_package/public/build/manifest.json
+        
+        # 5. AMANKAN INDEX.PHP
+        # Hapus index.php dari paket public (agar index custom server tidak tertimpa)
+        rm deploy_package/public/index.php
+
+        # 6. ZIP
+        cd deploy_package
+        zip -r ../artifact.zip .
+        cd ..
+
+    # --- UPLOAD ZIP & DEPLOY SCRIPT ---
+    - name: 🚀 Upload ZIP
       uses: SamKirkland/FTP-Deploy-Action@v4.3.5
       with:
         server: ${{ secrets.FTP_SERVER }}
         username: ${{ secrets.FTP_USERNAME }}
         password: ${{ secrets.FTP_PASSWORD }}
-        local-dir: public/
+        local-dir: ./
         server-dir: public_html/portfolio/
+        # Kita upload ZIP dan Script PHP-nya saja
+        include: |
+          artifact.zip
+          public/deploy.php
         exclude: |
-          index.php             # JANGAN TIMPA index.php custom
-          build/manifest.json   # <--- FITUR UTAMA: Manifest tidak di-upload ke sini (Dipindahkan)
-          .htaccess
-          hot
-          storage
-          robots.txt
+          **
 
-    # ------------------------------------------------------------------
-    # FASE 2: UPLOAD CORE LARAVEL
-    # Tujuan: repositories/portofolio_core
-    # ------------------------------------------------------------------
-    - name: 🚀 Upload Core Files
-      uses: SamKirkland/FTP-Deploy-Action@v4.3.5
-      with:
-        server: ${{ secrets.FTP_SERVER }}
-        username: ${{ secrets.FTP_USERNAME }}
-        password: ${{ secrets.FTP_PASSWORD }}
-        server-dir: repositories/portofolio_core/
-        exclude: |
-          **/.git*
-          **/.git*/**
-          node_modules/**
-          public/** # Exclude public agar bersih
-          tests/**
-          storage/logs/**
-          storage/framework/**
-          storage/app/**
-          .editorconfig
-          .styleci.yml
-
-    # ------------------------------------------------------------------
-    # FASE 3: UPLOAD MANIFEST KE CORE (Hanya Manifest)
-    # Tujuan: repositories/portofolio_core/public/build
-    # ------------------------------------------------------------------
-    - name: 🚀 Move Manifest to Core
-      uses: SamKirkland/FTP-Deploy-Action@v4.3.5
-      with:
-        server: ${{ secrets.FTP_SERVER }}
-        username: ${{ secrets.FTP_USERNAME }}
-        password: ${{ secrets.FTP_PASSWORD }}
-        local-dir: public/build/
-        server-dir: repositories/portofolio_core/public/build/
-        exclude: |
-          assets/** # <--- FITUR UTAMA: CSS/JS tidak ikut ke Core (Hemat Space) 
+    # --- TRIGGER EKSEKUSI ---
+    - name: 💥 Trigger Extraction
+      run: |
+        # GANTI TOKEN SESUAI YANG ADA DI FILE deploy.php
+        curl -s "https://portfolio.alvadev.cloud/deploy.php?token=ALVADEV_SECRET_KEY_2025"
