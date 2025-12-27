@@ -51,7 +51,7 @@ export default function HeroSection({ isDarkMode, scrollToSection, links }) {
                             className="px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-full font-bold shadow-lg transition transform hover:-translate-y-1 focus:ring-4 focus:ring-blue-500/50 outline-none"
                             aria-label="Ask my AI Assistant"
                         >
-                            Ask My AI✨
+                            Ask My AI Yeah✨
                         </button>
                         
                         <a 
